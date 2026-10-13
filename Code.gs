@@ -172,6 +172,7 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
       geminiData.pricing_strategy,
       geminiData.woocommerce,
       geminiData.poshmark_ebay,
+      geminiData.depop,
       geminiData.seller_insights,
       geminiData.lot_grouping
     ]]);
