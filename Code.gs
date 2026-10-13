@@ -2,7 +2,7 @@ const GEMINI_API_KEY = 'XXXXX'; // Replace with your actual key
 const FOLDER_ID = 'XXXXX';  //Replace with your folder id
 
 function processStampsBatches() {
-const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("listings"); //Replace with the name of your tab
+const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Listings"); //Replace with the name of your tab
   const folder = DriveApp.getFolderById(FOLDER_ID);
   const filesIterator = folder.getFiles();
   let filesArray = [];
