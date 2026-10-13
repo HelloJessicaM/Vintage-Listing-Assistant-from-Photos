@@ -105,6 +105,7 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
     - pricing_strategy: Suggested List Price, Minimum Acceptable Offer, Rationale
     - woocommerce: SEO Title, Short Description, Long Description (At least 800-1600 words), Measurements.
     - poshmark_ebay: Title, Description (<1500 chars), Tags, eBay Category
+    - depop: Description (<1000 characters, casual and trendy tone for vintage lovers), Hashtags (no # symbols)
     - seller_insights: Condition Notes, Power Seller Tip
     - lot_grouping: Suggest a thematic lot to bundle this in. If high value, state 'Sell Individually'.
   `;
@@ -126,6 +127,7 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
           pricing_strategy: { type: "STRING" },
           woocommerce: { type: "STRING" },
           poshmark_ebay: { type: "STRING" },
+          depop: { type: "STRING" },
           seller_insights: { type: "STRING" },
           lot_grouping: { type: "STRING" }
         },
@@ -134,6 +136,7 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
           "pricing_strategy", 
           "woocommerce", 
           "poshmark_ebay", 
+          "depop",
           "seller_insights", 
           "lot_grouping"
         ]
