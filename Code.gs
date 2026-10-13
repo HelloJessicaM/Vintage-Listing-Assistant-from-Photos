@@ -166,7 +166,7 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
     // Join the filenames with a comma so your Sheet lists all images associated with this single row
     const joinedNames = fileNames.join(", ");
     
-    sheet.getRange(row, 1, 1, 7).setValues([[
+    sheet.getRange(row, 1, 1, 8).setValues([[
       joinedNames,
       geminiData.era_identification,
       geminiData.pricing_strategy,
