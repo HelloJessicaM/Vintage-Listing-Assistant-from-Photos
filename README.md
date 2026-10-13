@@ -19,12 +19,13 @@ This script solves the problem of grouping those photos automatically. **Between
 1. Create a specific folder in Google Drive for your inventory photos and grab the **Folder ID** from the URL (the long string of letters/numbers after `folders/`).
 2. Create a Google Sheet. 
 3. **Important:** Name the specific tab/sheet you want to use (e.g., `Listings`). 
-4. Add the following **8 Headings** to Row 1 of that tab (A through H):
+4. Add the following **9 Headings** to Row 1 of that tab (A through H):
    * `Image Files`
    * `Era & Material`
    * `Pricing Strategy`
    * `WooCommerce Desc`
    * `Poshmark/eBay Desc`
+   * 'Depop'
    * `Seller Insights`
    * `Lot Grouping`
 
