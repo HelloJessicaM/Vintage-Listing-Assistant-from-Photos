@@ -45,3 +45,13 @@ At the very top of `Code.gs`, you MUST fill in your specific details:
 ```javascript
 const GEMINI_API_KEY = 'YOUR_API_KEY_HERE'; 
 const FOLDER_ID = 'YOUR_FOLDER_ID_HERE';
+
+**Targeting Your Specific Tab:**
+By default, the script targets a tab named "Listings" to prevent it from accidentally overwriting data if you have the wrong tab open. If you name your tab something else, update this line in the `processStampsBatches` function:
+
+\`\`\`javascript
+const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Listings"); 
+\`\`\`
+
+**Customizing the Prompt / Brand Voice:**
+Scroll down to the `promptText` variable inside the `generateListingForBatch` function. You can rewrite the prompt to fit your specific brand voice, change the length requirements, or alter the JSON output structure. If you change the requested JSON keys, ensure you also update the `responseSchema` requirement block right below it!
