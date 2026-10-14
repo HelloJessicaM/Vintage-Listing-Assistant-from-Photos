@@ -1,5 +1,5 @@
-const GEMINI_API_KEY = 'XXXXXXX'; // Replace with your actual key
-const FOLDER_ID = 'XXXXX';  //Replace with your folder id
+const GEMINI_API_KEY = '####'; // Replace with your actual key
+const FOLDER_ID = '####';  //Replace with your folder id
 
 function processStampsBatches() {
 const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("test-listings"); //Replace with the name of your tab
@@ -97,16 +97,20 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
     2. Calculate Measurements: Name any measurements specified. Do the math to provide doubled measurements where appropriate.
     3. Tone & Style: Expert but accessible. Write the WooCommerce description in the first person. Quirky tone. Tell the story. Do not use emojis. Do not use the pound # symbol in hashtags.
     
-    CRITICAL FORMATTING RULE: 
-    Output plain text ONLY. Do NOT use HTML tags. Use standard keyboard line breaks (new lines) for paragraph spacing and dashes (-) for bullet points. Use single quotes (') instead of double quotes (") inside your descriptions to keep the text clean.
+    CRITICAL FORMATTING RULES: 
+    1. Output plain text ONLY. Do NOT use HTML tags. Use standard keyboard line breaks (new lines) for paragraph spacing and dashes (-) for bullet points.
+    2. STRICT TITLE LIMITS: Titles MUST be 80 characters or less. eBay will reject the listing if it is 81 characters. Count the characters carefully for the WooCommerce SEO Title and the Poshmark/eBay Title.
+    3. Use single quotes (') instead of double quotes (") inside your descriptions to keep the JSON clean.
     
     Output the data based on this exact structure:
     - era_identification: Era, Material, Handling
-    - pricing_strategy: Suggested List Price, Minimum Acceptable Offer, Rationale
-    - woocommerce: SEO Title, Short Description, Long Description (At least 800-1600 words), Measurements.
-    - poshmark_ebay: Title, Description (<1500 chars), Tags, eBay Category
+    - condition_notes: Specific flaws or 'Excellent Vintage Condition'. (This must be clean text for the user to copy/paste directly).
+    - pricing: Suggested List Price, Minimum Acceptable Offer
+    - woocommerce: SEO Title (STRICTLY < 80 chars), Short Description, Long Description (At least 800-1600 words), Measurements.
+    - poshmark_ebay: Title (STRICTLY < 80 chars), Description (<1500 chars), Tags, eBay Category
     - depop: Description (<1000 characters, casual and trendy tone for vintage lovers), Hashtags (no # symbols)
-    - seller_insights: Condition Notes, Power Seller Tip
+    - rationale: Your reasoning for the suggested pricing based on market/condition.
+    - power_seller_tip: One quick tip for selling this specific item.
     - lot_grouping: Suggest a thematic lot to bundle this in. If high value, state 'Sell Individually'.
   `;
 
@@ -124,20 +128,24 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
         type: "OBJECT",
         properties: {
           era_identification: { type: "STRING" },
-          pricing_strategy: { type: "STRING" },
+          condition_notes: { type: "STRING" },
+          pricing: { type: "STRING" },
           woocommerce: { type: "STRING" },
           poshmark_ebay: { type: "STRING" },
           depop: { type: "STRING" },
-          seller_insights: { type: "STRING" },
+          rationale: { type: "STRING" },
+          power_seller_tip: { type: "STRING" },
           lot_grouping: { type: "STRING" }
         },
         required: [
-          "era_identification", 
-          "pricing_strategy", 
+          "era_identification",
+          "condition_notes",
+          "pricing",
           "woocommerce", 
           "poshmark_ebay", 
           "depop",
-          "seller_insights", 
+          "rationale",
+          "power_seller_tip",
           "lot_grouping"
         ]
       }
@@ -166,14 +174,17 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
     // Join the filenames with a comma so your Sheet lists all images associated with this single row
     const joinedNames = fileNames.join(", ");
     
-    sheet.getRange(row, 1, 1, 8).setValues([[
+    // Push the 10 columns of data into the sheet
+    sheet.getRange(row, 1, 1, 10).setValues([[
       joinedNames,
       geminiData.era_identification,
-      geminiData.pricing_strategy,
+      geminiData.condition_notes,
+      geminiData.pricing,
       geminiData.woocommerce,
       geminiData.poshmark_ebay,
       geminiData.depop,
-      geminiData.seller_insights,
+      geminiData.rationale,
+      geminiData.power_seller_tip,
       geminiData.lot_grouping
     ]]);
     
