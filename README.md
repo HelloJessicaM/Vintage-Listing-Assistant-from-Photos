@@ -1,5 +1,5 @@
 # Vintage-Listing-Assistant-from-Photos
-A Google Apps Script pipeline for vintage resellers and curators. This script automatically processes folders of inventory photos, groups them into individual items, and uses the Gemini 1.5 Flash Vision API to write SEO-optimized, multi-platform listings (WooCommerce, Poshmark, eBay) directly into a Google Sheet.
+A Google Apps Script pipeline for vintage resellers and curators. This script automatically processes folders of inventory photos, groups them into individual items, and uses the Gemini 3.8 Flash Vision API to write SEO-optimized, multi-platform listings (WooCommerce, Poshmark, eBay) directly into a Google Sheet.
 
 **License:** Public Domain (The Unlicense) - Feel free to use, modify, and share!
 
