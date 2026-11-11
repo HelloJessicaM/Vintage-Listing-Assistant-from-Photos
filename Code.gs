@@ -1,14 +1,48 @@
 const GEMINI_API_KEY = '####'; // Replace with your actual key
 const FOLDER_ID = '####';  //Replace with your folder id
+const GEMINI_MODEL = 'gemini-3.8-flash';    // The model we are using!
 
+// 1. Build the Custom Menu
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Vintage Tools')
+      .addItem('1. Process Photos (Manual)', 'runManual')
+      .addItem('1. Process Photos (Auto-Restart)', 'runAuto')
+      .addSeparator()
+      .addItem('2. Generate eBay Drafts Export', 'createEbayExport')
+      .addToUi();
+}
+
+function runManual() {
+  PropertiesService.getScriptProperties().setProperty('AUTO_RESTART', 'false');
+  processStampsBatches();
+}
+
+function runAuto() {
+  PropertiesService.getScriptProperties().setProperty('AUTO_RESTART', 'true');
+  SpreadsheetApp.getActiveSpreadsheet().toast("Auto-restart enabled! The script will quietly restart itself every 5.5 minutes until the folder is empty.", "Listings"); // replace Listings with the name of the tab you want it to fill
+  processStampsBatches();
+}
+
+// Cleans up background triggers when the job is done
+function clearTriggers() {
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'processStampsBatches') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+}
+
+// 2. Main Processing Function
 function processStampsBatches() {
   const startTime = Date.now();
-  const MAX_RUN_TIME = 4.5 * 60 * 1000; // 4.5 minutes (Stops safely before Google's 6 min limit)
+  const MAX_RUN_TIME = 5.5 * 60 * 1000; // 5.5 minutes
 
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("listings"); // Replace if your tab is named differently
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("11-10"); 
   const folder = DriveApp.getFolderById(FOLDER_ID);
   
-  // Create a "Processed" folder if it doesn't exist yet
+  // Create or grab the "Processed" folder
   let processedFolder;
   const folders = folder.getFoldersByName("Processed");
   if (folders.hasNext()) {
@@ -20,64 +54,65 @@ function processStampsBatches() {
   const filesIterator = folder.getFiles();
   let filesArray = [];
 
-  // 1. Gather all files and sort them alphabetically
   while (filesIterator.hasNext()) {
     filesArray.push(filesIterator.next());
   }
   filesArray.sort((a, b) => a.getName().localeCompare(b.getName()));
+
+  // If the folder is empty, we are completely done! Clean up triggers.
+  if (filesArray.length === 0) {
+    clearTriggers();
+    PropertiesService.getScriptProperties().deleteProperty('AUTO_RESTART');
+    return;
+  }
 
   let row = sheet.getLastRow() + 1;
   if (row < 2) row = 2;
 
   let currentItemImages = [];
   let currentItemFileNames = [];
-  let currentItemFiles = []; // We track the actual file objects so we can move them later
+  let currentItemFiles = []; 
 
-  // 2. Loop through the sorted files
   for (let i = 0; i < filesArray.length; i++) {
     
-    // SAFETY CLOCK: Check if we are running out of time
+    // SAFETY CLOCK: Auto-Restart Logic
     if (Date.now() - startTime > MAX_RUN_TIME) {
-      Logger.log("Nearing 5 minute limit. Stopping gracefully.");
-      SpreadsheetApp.getUi().alert("Time limit reached! The script processed as many as it could. Please click the button to run it again and it will pick up right where it left off.");
-      return; 
+      const autoRestart = PropertiesService.getScriptProperties().getProperty('AUTO_RESTART');
+      if (autoRestart === 'true') {
+        Logger.log("Time limit reached. Scheduling auto-restart.");
+        ScriptApp.newTrigger('processStampsBatches').timeBased().after(1000).create();
+        return; 
+      } else {
+        Logger.log("Time limit reached. Stopping manually.");
+        return; 
+      }
     }
 
     const file = filesArray[i];
     const base64Image = Utilities.base64Encode(file.getBlob().getBytes());
     const mimeType = file.getMimeType();
 
-    // 3. Ask Gemini if this specific image is your screenshot delimiter
     const isScreenshot = checkIfScreenshot(base64Image, mimeType);
 
     if (isScreenshot) {
-      // It's a screenshot! Process the batch
       if (currentItemImages.length > 0) {
-        Logger.log("Processing batch for: " + currentItemFileNames.join(", "));
-        
-        // Run the AI. We check if it was 'successful' before moving files
         const success = generateListingForBatch(currentItemImages, currentItemFileNames, sheet, row);
         
         if (success) {
           row++;
-          
-          // MOVE FILES: Get them out of the main folder so they aren't processed again
           for (let f of currentItemFiles) {
             f.moveTo(processedFolder);
           }
-          file.moveTo(processedFolder); // Move the screenshot too
+          file.moveTo(processedFolder); 
         }
         
-        // Clear the arrays for the next item
         currentItemImages = [];
         currentItemFileNames = [];
         currentItemFiles = [];
       } else {
-         // If there are back-to-back screenshots or empty batches, just move the screenshot out of the way
          file.moveTo(processedFolder);
       }
     } else {
-      // It's a regular photo. Add it to the batch
       currentItemImages.push({
         inlineData: { mimeType: mimeType, data: base64Image }
       });
@@ -86,7 +121,6 @@ function processStampsBatches() {
     }
   }
 
-  // 4. Safety catch for the final batch (if you forgot a screenshot at the very end)
   if (currentItemImages.length > 0) {
     const success = generateListingForBatch(currentItemImages, currentItemFileNames, sheet, row);
     if (success) {
@@ -96,12 +130,14 @@ function processStampsBatches() {
     }
   }
   
-  SpreadsheetApp.getUi().alert("Hooray! All images in the folder have been processed.");
+  // Clean up triggers once loop finishes
+  clearTriggers();
+  PropertiesService.getScriptProperties().deleteProperty('AUTO_RESTART');
 }
 
-// Lightweight helper function to detect your phone screenshots
+// 3. Helper: Screenshot Detection
 function checkIfScreenshot(base64Image, mimeType) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
   
   const payload = {
     contents: [{
@@ -122,17 +158,17 @@ function checkIfScreenshot(base64Image, mimeType) {
   try {
     const response = UrlFetchApp.fetch(url, options);
     const json = JSON.parse(response.getContentText());
+    if (json.error) return false;
     const textResponse = json.candidates[0].content.parts[0].text.trim().toUpperCase();
     return textResponse.includes("TRUE");
   } catch (e) {
-    Logger.log("Screenshot Check Error: " + e);
     return false;
   }
 }
 
-// Main listing generator modified to accept an array of images simultaneously
+// 4. Helper: AI Listing Generator
 function generateListingForBatch(imageParts, fileNames, sheet, row) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
   
   const promptText = `
     You are "The Vintage Listing & Business Assistant" for VintageReveries, a brand specializing in high-quality vintage (1930s–1980s), stamps, postcards, magazines, books and ephemera, mid-century objects, and select modern items.
@@ -162,7 +198,6 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
 
   const partsArray = [{ text: promptText }];
   
-  // SMART SAMPLING: If there are more than 4 photos, pick 4 spread evenly across the batch so Gemini sees the front AND back!
   const maxImages = 4;
   let imagesToAnalyze = [];
 
@@ -198,15 +233,8 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
           lot_grouping: { type: "STRING" }
         },
         required: [
-          "era_identification",
-          "condition_notes",
-          "pricing",
-          "woocommerce", 
-          "poshmark_ebay", 
-          "depop",
-          "rationale",
-          "power_seller_tip",
-          "lot_grouping"
+          "era_identification", "condition_notes", "pricing", "woocommerce", 
+          "poshmark_ebay", "depop", "rationale", "power_seller_tip", "lot_grouping"
         ]
       }
     }
@@ -223,33 +251,96 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
     const response = UrlFetchApp.fetch(url, options);
     const json = JSON.parse(response.getContentText());
     
-    if (json.error) {
-      Logger.log("API Error on batch: " + json.error.message);
-      return false; // Tells the main script it failed so it DOESN'T move the files
-    }
+    if (json.error) return false; 
     
     const textResponse = json.candidates[0].content.parts[0].text;
     const geminiData = JSON.parse(textResponse);
-    
     const joinedNames = fileNames.join(", ");
     
     sheet.getRange(row, 1, 1, 10).setValues([[
-      joinedNames,
-      geminiData.era_identification,
-      geminiData.condition_notes,
-      geminiData.pricing,
-      geminiData.woocommerce,
-      geminiData.poshmark_ebay,
-      geminiData.depop,
-      geminiData.rationale,
-      geminiData.power_seller_tip,
-      geminiData.lot_grouping
+      joinedNames, geminiData.era_identification, geminiData.condition_notes,
+      geminiData.pricing, geminiData.woocommerce, geminiData.poshmark_ebay,
+      geminiData.depop, geminiData.rationale, geminiData.power_seller_tip, geminiData.lot_grouping
     ]]);
-    
-    return true; // Tells the main script it succeeded! Move the files!
-    
+    return true; 
   } catch (e) {
-    Logger.log("Listing Generation Error: " + e);
     return false;
   }
+}
+
+// 5. eBay Draft Generator
+function createEbayExport() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = ss.getActiveSheet(); 
+  const data = sourceSheet.getDataRange().getValues();
+  
+  let exportSheet = ss.getSheetByName("eBay Export");
+  if (!exportSheet) {
+    exportSheet = ss.insertSheet("eBay Export");
+  } else {
+    exportSheet.clear(); 
+  }
+  
+  const infoRow1 = ["#INFO", "Version=0.0.2", "Template= eBay-draft-listings-template_US", "", "", "", "", "", "", "", ""];
+  const infoRow2 = ["#INFO Action and Category ID are required fields. 1) Set Action to Draft 2) Please find the category ID for your listings here: https://pages.ebay.com/sellerinformation/news/categorychanges.html", "", "", "", "", "", "", "", "", "", ""];
+  const infoRow3 = ["#INFO After you've successfully uploaded your draft from the Seller Hub Reports tab, complete your drafts to active listings here: https://www.ebay.com/sh/lst/drafts", "", "", "", "", "", "", "", "", "", ""];
+  const infoRow4 = ["#INFO", "", "", "", "", "", "", "", "", "", ""];
+  
+  const ebayHeaders = [
+    "Action(SiteID=US|Country=US|Currency=USD|Version=1193|CC=UTF-8)", 
+    "Custom label (SKU)", "Category ID", "Title", "UPC", "Price", "Quantity", 
+    "Item photo URL", "Condition ID", "Description", "Format"
+  ];
+  
+  const exportData = [infoRow1, infoRow2, infoRow3, infoRow4, ebayHeaders];
+  
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (!row[0] || row[0] === "") continue; 
+    
+    const skuOrImages = row[0] || "";
+    const conditionNotes = row[2] || "";
+    const pricingCol = row[3] || "";
+    const poshEbayCol = row[5] || "";
+    const listedCol = row[10];
+    const priceListedAt = row[11];
+    
+    if (listedCol && listedCol.toString().toLowerCase() === "yes") continue;
+    
+    let title = "";
+    let description = "";
+    
+    const titleMatch = poshEbayCol.match(/Title:\s*(.*?)(?=\n+Description:|$)/i);
+    const descMatch = poshEbayCol.match(/Description:\s*(.*)/is);
+    
+    if (titleMatch && descMatch) {
+      title = titleMatch[1].trim();
+      description = descMatch[1].trim();
+    } else {
+      const lines = poshEbayCol.split('\n');
+      title = lines[0].replace(/Title:/i, '').trim();
+      description = lines.slice(1).join('\n').replace(/Description:/i, '').trim();
+    }
+    
+    description = description.replace(/(?:\n|^)*(?:Tags|eBay Category|Category):[\s\S]*$/i, '').trim();
+    const finalDescription = `${description.replace(/\n/g, '<br>')}<br><br><b>Condition Notes:</b><br>${conditionNotes}`;
+    
+    let finalPrice = "";
+    if (priceListedAt && priceListedAt !== "") {
+      finalPrice = priceListedAt.toString().replace(/[^0-9.]/g, ''); 
+    } else {
+      const priceMatch = pricingCol.match(/([0-9]+\.[0-9]{2})/);
+      if (priceMatch) finalPrice = priceMatch[1];
+    }
+    
+    const ebayRow = [
+      "Draft", skuOrImages.substring(0, 50), "365", title.substring(0, 80), "", 
+      finalPrice, "1", "", "3000", finalDescription, "FixedPrice"
+    ];
+    
+    exportData.push(ebayRow);
+  }
+  
+  exportSheet.getRange(1, 1, exportData.length, ebayHeaders.length).setValues(exportData);
+  SpreadsheetApp.getUi().alert("Success! Your eBay Drafts have been generated using the new Seller Hub format.");
 }
