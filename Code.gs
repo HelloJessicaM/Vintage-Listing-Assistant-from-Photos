@@ -2,25 +2,47 @@ const GEMINI_API_KEY = '####'; // Replace with your actual key
 const FOLDER_ID = '####';  //Replace with your folder id
 
 function processStampsBatches() {
-const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("test-listings"); //Replace with the name of your tab
+  const startTime = Date.now();
+  const MAX_RUN_TIME = 4.5 * 60 * 1000; // 4.5 minutes (Stops safely before Google's 6 min limit)
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("listings"); // Replace if your tab is named differently
   const folder = DriveApp.getFolderById(FOLDER_ID);
+  
+  // Create a "Processed" folder if it doesn't exist yet
+  let processedFolder;
+  const folders = folder.getFoldersByName("Processed");
+  if (folders.hasNext()) {
+    processedFolder = folders.next();
+  } else {
+    processedFolder = folder.createFolder("Processed");
+  }
+
   const filesIterator = folder.getFiles();
   let filesArray = [];
 
-  // 1. Gather all files and sort them alphabetically to maintain chronological order
+  // 1. Gather all files and sort them alphabetically
   while (filesIterator.hasNext()) {
     filesArray.push(filesIterator.next());
   }
   filesArray.sort((a, b) => a.getName().localeCompare(b.getName()));
 
-  let row = sheet.getLastRow() + 1; // Start adding at the bottom of your sheet
-  if (row < 2) row = 2; // Assuming row 1 has headers
+  let row = sheet.getLastRow() + 1;
+  if (row < 2) row = 2;
 
   let currentItemImages = [];
   let currentItemFileNames = [];
+  let currentItemFiles = []; // We track the actual file objects so we can move them later
 
   // 2. Loop through the sorted files
   for (let i = 0; i < filesArray.length; i++) {
+    
+    // SAFETY CLOCK: Check if we are running out of time
+    if (Date.now() - startTime > MAX_RUN_TIME) {
+      Logger.log("Nearing 5 minute limit. Stopping gracefully.");
+      SpreadsheetApp.getUi().alert("Time limit reached! The script processed as many as it could. Please click the button to run it again and it will pick up right where it left off.");
+      return; 
+    }
+
     const file = filesArray[i];
     const base64Image = Utilities.base64Encode(file.getBlob().getBytes());
     const mimeType = file.getMimeType();
@@ -29,28 +51,52 @@ const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("test-listing
     const isScreenshot = checkIfScreenshot(base64Image, mimeType);
 
     if (isScreenshot) {
-      // It's a screenshot! Process the accumulated batch of item photos (if any exist)
+      // It's a screenshot! Process the batch
       if (currentItemImages.length > 0) {
         Logger.log("Processing batch for: " + currentItemFileNames.join(", "));
-        generateListingForBatch(currentItemImages, currentItemFileNames, sheet, row);
-        row++;
+        
+        // Run the AI. We check if it was 'successful' before moving files
+        const success = generateListingForBatch(currentItemImages, currentItemFileNames, sheet, row);
+        
+        if (success) {
+          row++;
+          
+          // MOVE FILES: Get them out of the main folder so they aren't processed again
+          for (let f of currentItemFiles) {
+            f.moveTo(processedFolder);
+          }
+          file.moveTo(processedFolder); // Move the screenshot too
+        }
+        
         // Clear the arrays for the next item
         currentItemImages = [];
         currentItemFileNames = [];
+        currentItemFiles = [];
+      } else {
+         // If there are back-to-back screenshots or empty batches, just move the screenshot out of the way
+         file.moveTo(processedFolder);
       }
     } else {
-      // It's a regular photo. Add it to the current item's batch
+      // It's a regular photo. Add it to the batch
       currentItemImages.push({
         inlineData: { mimeType: mimeType, data: base64Image }
       });
       currentItemFileNames.push(file.getName());
+      currentItemFiles.push(file);
     }
   }
 
-  // 4. Safety catch: Process the final batch if the folder didn't end with a screenshot
+  // 4. Safety catch for the final batch (if you forgot a screenshot at the very end)
   if (currentItemImages.length > 0) {
-    generateListingForBatch(currentItemImages, currentItemFileNames, sheet, row);
+    const success = generateListingForBatch(currentItemImages, currentItemFileNames, sheet, row);
+    if (success) {
+      for (let f of currentItemFiles) {
+        f.moveTo(processedFolder);
+      }
+    }
   }
+  
+  SpreadsheetApp.getUi().alert("Hooray! All images in the folder have been processed.");
 }
 
 // Lightweight helper function to detect your phone screenshots
@@ -114,19 +160,15 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
     - lot_grouping: Suggest a thematic lot to bundle this in. If high value, state 'Sell Individually'.
   `;
 
-  // Combine the single text prompt with the array of images for this item
   const partsArray = [{ text: promptText }];
   
-  // SMART SAMPLING SAFETY CAP: 
-  // If there are more than 4 photos, pick 4 spread evenly across the batch 
-  // so Gemini always sees the front AND the back.
+  // SMART SAMPLING: If there are more than 4 photos, pick 4 spread evenly across the batch so Gemini sees the front AND back!
   const maxImages = 4;
   let imagesToAnalyze = [];
 
   if (imageParts.length <= maxImages) {
     imagesToAnalyze = imageParts;
   } else {
-    // Math to pick evenly spaced images (always includes the first and last photo)
     const step = (imageParts.length - 1) / (maxImages - 1);
     for (let i = 0; i < maxImages; i++) {
       const index = Math.round(i * step);
@@ -183,16 +225,14 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
     
     if (json.error) {
       Logger.log("API Error on batch: " + json.error.message);
-      return;
+      return false; // Tells the main script it failed so it DOESN'T move the files
     }
     
     const textResponse = json.candidates[0].content.parts[0].text;
     const geminiData = JSON.parse(textResponse);
     
-    // Join ALL filenames with a comma so your Sheet lists every photo associated with this single row
     const joinedNames = fileNames.join(", ");
     
-    // Push the 10 columns of data into the sheet
     sheet.getRange(row, 1, 1, 10).setValues([[
       joinedNames,
       geminiData.era_identification,
@@ -206,7 +246,10 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
       geminiData.lot_grouping
     ]]);
     
+    return true; // Tells the main script it succeeded! Move the files!
+    
   } catch (e) {
     Logger.log("Listing Generation Error: " + e);
+    return false;
   }
 }
