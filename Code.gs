@@ -116,8 +116,26 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
 
   // Combine the single text prompt with the array of images for this item
   const partsArray = [{ text: promptText }];
-  for (let i = 0; i < imageParts.length; i++) {
-    partsArray.push(imageParts[i]);
+  
+  // SMART SAMPLING SAFETY CAP: 
+  // If there are more than 4 photos, pick 4 spread evenly across the batch 
+  // so Gemini always sees the front AND the back.
+  const maxImages = 4;
+  let imagesToAnalyze = [];
+
+  if (imageParts.length <= maxImages) {
+    imagesToAnalyze = imageParts;
+  } else {
+    // Math to pick evenly spaced images (always includes the first and last photo)
+    const step = (imageParts.length - 1) / (maxImages - 1);
+    for (let i = 0; i < maxImages; i++) {
+      const index = Math.round(i * step);
+      imagesToAnalyze.push(imageParts[index]);
+    }
+  }
+  
+  for (let i = 0; i < imagesToAnalyze.length; i++) {
+    partsArray.push(imagesToAnalyze[i]);
   }
 
   const payload = {
@@ -171,7 +189,7 @@ function generateListingForBatch(imageParts, fileNames, sheet, row) {
     const textResponse = json.candidates[0].content.parts[0].text;
     const geminiData = JSON.parse(textResponse);
     
-    // Join the filenames with a comma so your Sheet lists all images associated with this single row
+    // Join ALL filenames with a comma so your Sheet lists every photo associated with this single row
     const joinedNames = fileNames.join(", ");
     
     // Push the 10 columns of data into the sheet
